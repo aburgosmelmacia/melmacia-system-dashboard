@@ -1,0 +1,16 @@
+{
+  "notifications": {
+    "enabled": true
+  },
+  "refresh_interval": 60,
+  "log_retention_days": 30,
+  "threshold_check_interval": 5,
+  "background_service": {
+    "enabled": true,
+    "check_interval": 1
+  },
+  "dashboard": {
+    "title": "Estado de los sistemas Melmacia",
+    "max_events_displayed": 5
+  }
+}

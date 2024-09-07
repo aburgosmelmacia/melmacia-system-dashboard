@@ -1,1 +1,8 @@
 flask
+paramiko
+requests
+pymsteams
+schedule
+python-dotenv
+pysqlite3
+pytz

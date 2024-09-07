@@ -1,0 +1,14 @@
+[
+  {
+    "name": "API MPM Server",
+    "server": "MPM",
+    "requires_ssh": false,
+    "url": "http://melmacia.segelevia.com:5000/check/status"
+  },
+  {
+    "name": "API Gestion",
+    "server": "Gestion",
+    "requires_ssh": true,
+    "url": "http://localhost:5000/check/status"
+  }
+]

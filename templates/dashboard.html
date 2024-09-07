@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ config['dashboard']['title'] }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="dashboard">
+        <header>
+            <div class="logo-container">
+                <img src="https://melmacia.com/wp-content/uploads/2020/02/melmacia_logo_peque-1-300x189.png" alt="Melmacia Logo" class="logo">
+            </div>
+            <h1>{{ config['dashboard']['title'] }}</h1>
+            <nav class="navigation">
+                <a href="/servers">Ver todos los servidores</a>
+                <a href="/apis">Ver todas las APIs</a>
+            </nav>
+        </header>
+
+        <div id="loading" class="loading">Cargando...</div>
+
+        <main id="status-container">
+            <!-- El contenido se actualizará dinámicamente -->
+        </main>
+
+        <div id="pagination-container" class="pagination">
+            <!-- Los controles de paginación se añadirán aquí -->
+        </div>
+
+        <footer>
+            <p>Última actualización: <span id="last-update"></span></p>
+            <p>Próxima actualización en: <span id="refresh-countdown"></span> segundos</p>
+        </footer>
+    </div>
+
+    <script>
+        let currentPage = 1;
+        let eventsPerPage = {{ config['dashboard']['max_events_displayed'] }};
+        let refreshInterval = {{ config['refresh_interval'] }};
+        let countdownTimer;
+
+        function updateDashboard(page = 1, showLoading = true) {
+            if (showLoading) {
+                $('#loading').show();
+                $('#status-container').hide();
+            }
+            
+            $.getJSON(`/api/dashboard-data?page=${page}`, function(data) {
+                let html = '';
+                
+                // Estado general
+                html += '<section class="overall-status">';
+                html += '<h2>Estado General</h2>';
+                html += `<div class="status-indicator ${data.overallStatus.toLowerCase()}">${data.overallStatus}</div>`;
+                html += '</section>';
+                
+                html += '<div class="flex-container">';
+                
+                // Servidores
+                html += '<section class="servers">';
+                html += '<h2>Servidores</h2>';
+                html += '<div class="grid">';
+                for (let server of data.servers) {
+                    html += `<div class="card ${server.status ? 'up' : 'down'}">`;
+                    html += `<h3>${server.name}</h3>`;
+                    html += `<p class="status">${server.status ? 'Activo' : 'Inaccesible'}</p>`;
+                    
+                    if (server.status && server.info) {
+                        html += '<div class="server-info">';
+                        html += `<p><strong>Uptime:</strong> ${server.info.uptime}</p>`;
+                        html += `<p><strong>Carga:</strong> <span class="${server.load_state}">${server.info.load}</span></p>`;
+                        html += `<p><strong>RAM:</strong> <span class="${server.ram_state}">${server.info.ram_usage}</span></p>`;
+                        for (let disk in server.disk_states) {
+                            html += `<p><strong>Disco ${disk}:</strong> <span class="${server.disk_states[disk]}">${server.info['disk_usage_' + disk.replace('/', '_')]}</span></p>`;
+                        }
+                        html += '</div>';
+                    }
+                    html += '</div>';
+                }
+                html += '</div>';
+                html += '</section>';
+                
+                // APIs
+                html += '<section class="apis">';
+                html += '<h2>APIs</h2>';
+                html += '<div class="grid">';
+                for (let api of data.apis) {
+                    html += `<div class="card ${api.status ? 'up' : 'down'}">`;
+                    html += `<h3>${api.name}</h3>`;
+                    html += `<p class="status">${api.status ? 'Activa' : 'Inactiva'}</p>`;
+                    html += '</div>';
+                }
+                html += '</div>';
+                html += '</section>';
+                
+                html += '</div>'; // Cierre de flex-container
+                
+                // Últimos eventos
+                html += '<section class="events">';
+                html += '<h2>Últimos Eventos</h2>';
+                html += '<ul>';
+                for (let event of data.event_log) {
+                    html += `<li><span class="timestamp">${event.timestamp}</span> ${event.message}</li>`;
+                }
+                html += '</ul>';
+                html += '</section>';
+                
+                $('#status-container').html(html);
+                
+                // Actualizar la paginación
+                updatePagination(data.current_page, data.total_pages);
+                
+                // Actualizar la hora de la última actualización
+                const now = new Date();
+                const formattedDate = now.toLocaleString('es-ES', { 
+                    year: 'numeric', 
+                    month: '2-digit', 
+                    day: '2-digit', 
+                    hour: '2-digit', 
+                    minute: '2-digit', 
+                    second: '2-digit' 
+                });
+                $('#last-update').text(formattedDate);
+                
+                if (showLoading) {
+                    $('#loading').hide();
+                    $('#status-container').show();
+                }
+
+                eventsPerPage = data.events_per_page;
+
+                // Reiniciar el contador de actualización
+                startCountdown();
+            });
+        }
+
+        function startCountdown() {
+            let countdown = refreshInterval;
+            updateCountdown(countdown);
+
+            clearInterval(countdownTimer);
+            countdownTimer = setInterval(function() {
+                countdown--;
+                updateCountdown(countdown);
+                if (countdown <= 0) {
+                    clearInterval(countdownTimer);
+                }
+            }, 1000);
+        }
+
+        function updateCountdown(seconds) {
+            $('#refresh-countdown').text(seconds);
+        }
+
+        function updatePagination(currentPage, totalPages) {
+            let paginationHtml = '';
+            if (totalPages > 1) {
+                paginationHtml += '<button onclick="changePage(-1)" class="pagination-btn">&laquo; Anterior</button>';
+                paginationHtml += `<span>Página ${currentPage} de ${totalPages}</span>`;
+                paginationHtml += '<button onclick="changePage(1)" class="pagination-btn">Siguiente &raquo;</button>';
+            }
+            $('#pagination-container').html(paginationHtml);
+        }
+
+        function changePage(direction) {
+            currentPage += direction;
+            updateDashboard(currentPage, false);  // No mostrar "Cargando..." al cambiar de página
+        }
+
+        // Actualizar según el intervalo configurado
+        setInterval(() => updateDashboard(currentPage, true), refreshInterval * 1000);
+        
+        // Actualizar inmediatamente al cargar la página
+        $(document).ready(() => {
+            $('#status-container').hide();
+            updateDashboard(currentPage, true);
+        });
+    </script>
+</body>
+</html>

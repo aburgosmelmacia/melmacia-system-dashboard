@@ -1,0 +1,16 @@
+[
+  {
+    "name": "MPM",
+    "ssh": {
+      "hostname": "MPM"
+    },
+    "disks": ["/", "/data"]
+  },
+  {
+    "name": "Gestion",
+    "ssh": {
+      "hostname": "Gestion"
+    },
+    "disks": ["/"]
+  }
+]
