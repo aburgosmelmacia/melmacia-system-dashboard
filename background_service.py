@@ -1,7 +1,7 @@
 import time
 import schedule
 import logging
-from dashboard import check_status, DB_PATH, clean_old_events, cargar_configuraciones
+from dashboard import check_status, clean_old_events, cargar_configuraciones
 import os
 
 # Configurar el logging
@@ -9,7 +9,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 
 def realizar_comprobaciones():
     logging.info("Realizando comprobaciones...")
-    status = check_status()
+    check_status()
     logging.info("Comprobaciones completadas.")
 
 def main():
@@ -26,7 +26,6 @@ def main():
         return
 
     intervalo_comprobacion = GENERAL_CONFIG['background_service']['check_interval']
-    dias_retencion_logs = GENERAL_CONFIG['log_retention_days']
 
     logging.info(f"Iniciando servicio en segundo plano. Intervalo de comprobación: {intervalo_comprobacion} minutos")
 

@@ -3,7 +3,6 @@ import os
 import paramiko
 import requests
 from pymsteams import connectorcard
-import time
 from dotenv import load_dotenv
 from datetime import datetime
 import sqlite3
@@ -190,33 +189,6 @@ def get_server_info(ssh_client, disks):
         server_info[f"disk_usage_{parts[5].replace('/', '_')}"] = f"{parts[4]} ({parts[2]} / {parts[1]})"
     
     return server_info
-
-def get_load_color(load):
-    load_value = float(load.split(',')[0])
-    if load_value < 0.7:
-        return 'good'
-    elif load_value < 1.0:
-        return 'warning'
-    else:
-        return 'critical'
-
-def get_ram_color(ram_usage):
-    percentage = float(ram_usage.split('%')[0])
-    if percentage < 70:
-        return 'good'
-    elif percentage < 85:
-        return 'warning'
-    else:
-        return 'critical'
-
-def get_disk_color(disk_usage):
-    percentage = float(disk_usage.split('%')[0])
-    if percentage < 70:
-        return 'good'
-    elif percentage < 85:
-        return 'warning'
-    else:
-        return 'critical'
 
 def check_resource_state(current_value, thresholds, resource_name, server_name):
     def extract_percentage(value):

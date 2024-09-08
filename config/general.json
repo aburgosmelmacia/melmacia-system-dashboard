@@ -4,7 +4,6 @@
   },
   "refresh_interval": 60,
   "log_retention_days": 30,
-  "threshold_check_interval": 5,
   "background_service": {
     "enabled": true,
     "check_interval": 1
