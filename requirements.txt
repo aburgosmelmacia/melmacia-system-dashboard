@@ -6,3 +6,4 @@ schedule
 python-dotenv
 pysqlite3
 pytz
+flask-cors
