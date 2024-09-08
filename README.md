@@ -118,7 +118,6 @@ Donde:
 - `"notification_interval"`: Es el intervalo de tiempo en segundos entre cada notificación de alerta.
 - `"teams_webhook"`: Es la URL del webhook de Microsoft Teams para enviar notificaciones.
 
-
 ## Uso
 
 1. Configura las claves SSH:
@@ -142,12 +141,14 @@ Donde:
    python dashboard.py
    ```
 
+   El servidor se iniciará en el puerto especificado en `config/general.json` (por defecto, 9000).
+
 3. Inicia el servicio en segundo plano:
    ```
    python background_service.py
    ```
 
-4. Abre un navegador y visita `http://localhost:5000`
+4. Abre un navegador y visita `http://localhost:9000` (o el puerto que hayas configurado)
 
 ## Funcionamiento
 

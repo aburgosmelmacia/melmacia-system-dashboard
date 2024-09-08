@@ -389,4 +389,5 @@ def api_dashboard_data():
     return jsonify(data)
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    port = GENERAL_CONFIG['dashboard'].get('port', 5000)  # Usa 5000 como puerto predeterminado si no está definido
+    app.run(debug=True, port=port)

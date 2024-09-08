@@ -6,5 +6,5 @@ services:
       - .:/workspaces/melmacia-system-dashboard:cached
     command: sleep infinity
     # Ejecuta el comando post-creación
-    entrypoint: /bin/sh -c "pip3 install -r requirements.txt && exec sleep infinity"
+    entrypoint: /bin/sh -c "pip3 install -r requirements.txt && python dashboard.py & python background_service.py & wait"
     working_dir: /workspaces/melmacia-system-dashboard

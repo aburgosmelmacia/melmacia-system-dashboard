@@ -10,6 +10,7 @@
   },
   "dashboard": {
     "title": "Estado de los sistemas Melmacia",
-    "max_events_displayed": 5
+    "max_events_displayed": 5,
+    "port": 9000
   }
 }
