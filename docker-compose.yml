@@ -7,3 +7,4 @@ services:
     command: sleep infinity
     # Ejecuta el comando post-creación
     entrypoint: /bin/sh -c "pip3 install -r requirements.txt && exec sleep infinity"
+    working_dir: /workspaces/melmacia-system-dashboard
