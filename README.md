@@ -189,3 +189,25 @@ Este proyecto incluye un archivo `docker-compose.template.yml` para facilitar la
 4. Accede a la interfaz web visitando `http://localhost:9000` en tu navegador.
 
 Nota: Asegúrate de que el directorio `.ssh` y los archivos de configuración necesarios estén presentes en el directorio del proyecto antes de iniciar el contenedor.
+
+## Uso con Docker
+
+Este proyecto incluye un archivo `docker-compose.template.yml` para facilitar la ejecución en un entorno Docker. Sigue estos pasos para utilizarlo:
+
+1. Copia el archivo template a `docker-compose.yml`:
+   ```
+   cp docker-compose.template.yml docker-compose.yml
+   ```
+
+2. Ejecuta el contenedor Docker pasando las variables de entorno `HOST_UID` y `HOST_GID` con los valores correspondientes a tu máquina host:
+   ```
+   HOST_UID=$(id -u) HOST_GID=$(id -g) docker-compose up
+   ```
+
+   Esto asegurará que el contenedor se ejecute con los mismos UID y GID que tu usuario en la máquina host, evitando problemas de permisos.
+
+3. El contenedor se iniciará y ejecutará tanto `dashboard.py` como `background_service.py`.
+
+4. Accede a la interfaz web visitando `http://localhost:9000` en tu navegador.
+
+Nota: Asegúrate de que el directorio `.ssh` y los archivos de configuración necesarios estén presentes en el directorio del proyecto antes de iniciar el contenedor.

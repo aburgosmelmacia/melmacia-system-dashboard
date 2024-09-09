@@ -5,23 +5,13 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        USER_UID: ${HOST_UID:-1000}
-        USER_GID: ${HOST_GID:-1000}
+        USER_UID: ${HOST_UID}
+        USER_GID: ${HOST_GID}
     volumes:
       - .:/workspaces/melmacia-system-dashboard
       - ./.ssh:/home/vscode/.ssh:ro
     command: sleep infinity
-    # Ejecuta el comando post-creación
-    entrypoint: >
-      /bin/sh -c "
-        sudo chown -R vscode:vscode /workspaces/melmacia-system-dashboard &&
-        sudo chown -R vscode:vscode /home/vscode/.ssh &&
-        sudo chmod 700 /home/vscode/.ssh &&
-        sudo find /home/vscode/.ssh -type f -exec chmod 600 {} \; &&
-        pip3 install -r requirements.txt &&
-        python dashboard.py & python background_service.py & wait
-      "
     working_dir: /workspaces/melmacia-system-dashboard
     ports:
       - "9000:9000"
-    user: vscode
+    user: ${HOST_UID}:${HOST_GID}
