@@ -4,11 +4,13 @@ services:
     image: mcr.microsoft.com/devcontainers/python:1-3.12
     volumes:
       - .:/workspaces/melmacia-system-dashboard:cached
-      - ./.ssh:/home/vscode/.ssh:ro
+      - ./.ssh:/tmp/.ssh:ro
     command: sleep infinity
     # Ejecuta el comando post-creación
     entrypoint: >
       /bin/sh -c "
+        mkdir -p /home/vscode/.ssh &&
+        cp -r /tmp/.ssh/* /home/vscode/.ssh/ &&
         chown -R vscode:vscode /home/vscode/.ssh &&
         chmod 700 /home/vscode/.ssh &&
         chmod 600 /home/vscode/.ssh/* &&
