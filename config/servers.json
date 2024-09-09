@@ -2,7 +2,7 @@
   {
     "name": "MPM",
     "ssh": {
-      "hostname": "host.docker.internal"
+      "hostname": "MPM"
     },
     "disks": ["/", "/data"]
   },
