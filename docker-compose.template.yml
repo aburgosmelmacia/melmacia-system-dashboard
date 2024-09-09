@@ -9,15 +9,15 @@ services:
     # Ejecuta el comando post-creación
     entrypoint: >
       /bin/sh -c "
-        sudo -u vscode mkdir -p /home/vscode/.ssh &&
-        sudo -u vscode cp -r /tmp/.ssh/* /home/vscode/.ssh/ &&
+        sudo mkdir -p /home/vscode/.ssh &&
+        sudo cp -r /tmp/.ssh/* /home/vscode/.ssh/ &&
         sudo chown -R vscode:vscode /home/vscode/.ssh &&
         sudo chmod 700 /home/vscode/.ssh &&
         sudo chmod 600 /home/vscode/.ssh/* &&
-        pip3 install -r requirements.txt &&
-        python dashboard.py & python background_service.py & wait
+        sudo -u vscode pip3 install -r requirements.txt &&
+        sudo -u vscode python dashboard.py & sudo -u vscode python background_service.py & wait
       "
     working_dir: /workspaces/melmacia-system-dashboard
     ports:
       - "9000:9000"
-    user: ${HOST_UID:-1000}:${HOST_GID:-1000}
+    user: root
