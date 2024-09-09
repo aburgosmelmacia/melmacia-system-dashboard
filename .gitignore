@@ -333,3 +333,4 @@ ASALocalRun/
 .env
 
 .ssh
+docker-compose.yml
