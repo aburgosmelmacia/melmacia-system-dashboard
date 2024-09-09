@@ -10,7 +10,12 @@ services:
     volumes:
       - .:/workspaces/melmacia-system-dashboard
       - ./.ssh:/home/vscode/.ssh:ro
-    command: sleep infinity
+    command: >
+      bash -c "
+        python /workspaces/melmacia-system-dashboard/dashboard.py &
+        python /workspaces/melmacia-system-dashboard/background_service.py &
+        sleep infinity
+      "
     working_dir: /workspaces/melmacia-system-dashboard
     ports:
       - "9000:9000"
