@@ -9,11 +9,11 @@ services:
     # Ejecuta el comando post-creación
     entrypoint: >
       /bin/sh -c "
-        mkdir -p /home/vscode/.ssh &&
-        cp -r /tmp/.ssh/* /home/vscode/.ssh/ &&
-        chown -R vscode:vscode /home/vscode/.ssh &&
-        chmod 700 /home/vscode/.ssh &&
-        chmod 600 /home/vscode/.ssh/* &&
+        sudo -u vscode mkdir -p /home/vscode/.ssh &&
+        sudo -u vscode cp -r /tmp/.ssh/* /home/vscode/.ssh/ &&
+        sudo chown -R vscode:vscode /home/vscode/.ssh &&
+        sudo chmod 700 /home/vscode/.ssh &&
+        sudo chmod 600 /home/vscode/.ssh/* &&
         pip3 install -r requirements.txt &&
         python dashboard.py & python background_service.py & wait
       "
