@@ -7,7 +7,15 @@ services:
       - ./.ssh:/home/vscode/.ssh:ro
     command: sleep infinity
     # Ejecuta el comando post-creación
-    entrypoint: /bin/sh -c "pip3 install -r requirements.txt && python dashboard.py & python background_service.py & wait"
+    entrypoint: >
+      /bin/sh -c "
+        chown -R vscode:vscode /home/vscode/.ssh &&
+        chmod 700 /home/vscode/.ssh &&
+        chmod 600 /home/vscode/.ssh/* &&
+        pip3 install -r requirements.txt &&
+        python dashboard.py & python background_service.py & wait
+      "
     working_dir: /workspaces/melmacia-system-dashboard
     ports:
       - "9000:9000"
+    user: root
