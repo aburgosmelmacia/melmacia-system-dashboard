@@ -20,3 +20,5 @@ services:
     ports:
       - "9000:9000"
     user: ${HOST_UID}:${HOST_GID}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
