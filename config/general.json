@@ -12,5 +12,22 @@
     "title": "Estado de los sistemas Melmacia",
     "max_events_displayed": 5,
     "port": 9000
+  },
+  "thresholds": {
+    "load": {
+      "warning": 0.7,
+      "critical": 1.0,
+      "alerts_enabled": false
+    },
+    "ram": {
+      "warning": 70,
+      "critical": 85,
+      "alerts_enabled": true
+    },
+    "disk": {
+      "warning": 80,
+      "critical": 90,
+      "alerts_enabled": true
+    }
   }
 }

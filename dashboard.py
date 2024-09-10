@@ -21,11 +21,6 @@ status_lock = threading.Lock()
 # Definir la ruta de la base de datos en un lugar persistente
 DB_PATH = os.path.join(os.path.expanduser('~'), 'events.db')
 
-# Definir umbrales para los recursos
-load_thresholds = {'warning': 0.7, 'critical': 1.0}
-ram_thresholds = {'warning': 70, 'critical': 85}
-disk_thresholds = {'warning': 70, 'critical': 85}
-
 # Configurar logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -190,7 +185,9 @@ def get_server_info(ssh_client, disks):
     
     return server_info
 
-def check_resource_state(current_value, thresholds, resource_name, server_name):
+def check_resource_state(current_value, resource_name, server_name):
+    thresholds = GENERAL_CONFIG['thresholds'][resource_name.split('_')[0]]
+    
     def extract_percentage(value):
         if isinstance(value, str):
             import re
@@ -218,11 +215,12 @@ def check_resource_state(current_value, thresholds, resource_name, server_name):
     last_state = load_saved_state(state_key)
     
     if new_state != last_state:
-        message = f"El {resource_name} de {server_name} ha cambiado a estado {new_state}: {current_value:.2f}%"
-        send_teams_alert(message, GENERAL_CONFIG)
-        add_event(message)
+        if thresholds.get('alerts_enabled', True):
+            message = f"El {resource_name} de {server_name} ha cambiado a estado {new_state}: {current_value:.2f}%"
+            send_teams_alert(message, GENERAL_CONFIG)
+            add_event(message)
         save_state(state_key, new_state)
-        logging.info(f"Cambio de estado detectado: {message}")
+        logging.info(f"Cambio de estado detectado: {resource_name} de {server_name} a {new_state}")
     else:
         logging.debug(f"No hay cambio de estado para {resource_name} de {server_name}")
     
@@ -247,15 +245,15 @@ def check_status():
             
             # Actualizar estados de los recursos
             load_value = float(server_info.get('load', '0').split(',')[0])
-            status[f"{server['name']}_load_state"] = check_resource_state(load_value, load_thresholds, 'carga del sistema', server['name'])
+            status[f"{server['name']}_load_state"] = check_resource_state(load_value, 'load', server['name'])
             
             ram_usage = float(server_info.get('ram_usage', '0%').split('%')[0])
-            status[f"{server['name']}_ram_state"] = check_resource_state(ram_usage, ram_thresholds, 'uso de RAM', server['name'])
+            status[f"{server['name']}_ram_state"] = check_resource_state(ram_usage, 'ram', server['name'])
             
             for disk in server['disks']:
                 disk_key = f"disk_usage_{disk.replace('/', '_')}"
                 disk_usage = float(server_info.get(disk_key, '0%').split('%')[0])
-                status[f"{server['name']}_{disk_key}_state"] = check_resource_state(disk_usage, disk_thresholds, f'uso de disco {disk}', server['name'])
+                status[f"{server['name']}_{disk_key}_state"] = check_resource_state(disk_usage, 'disk', server['name'])
         else:
             logging.warning(f"No se pudo conectar al servidor {server['name']}")
     
