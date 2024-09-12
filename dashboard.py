@@ -4,7 +4,7 @@ import paramiko
 import requests
 from pymsteams import connectorcard
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timedelta
 import sqlite3
 import pytz
 import threading
@@ -12,6 +12,8 @@ from paramiko import SSHConfig, ProxyCommand
 from flask import Flask, render_template, jsonify, request
 from flask_cors import CORS
 import logging
+import time
+import random
 
 load_dotenv()
 
@@ -243,17 +245,22 @@ def check_status():
             status[f"{server['name']}_info"] = server_info
             ssh_client.close()
             
-            # Actualizar estados de los recursos
+            # Guardar estados de los recursos
             load_value = float(server_info.get('load', '0').split(',')[0])
+            save_state(f"{server['name']}_load", load_value)
             status[f"{server['name']}_load_state"] = check_resource_state(load_value, 'load', server['name'])
             
             ram_usage = float(server_info.get('ram_usage', '0%').split('%')[0])
+            save_state(f"{server['name']}_ram", ram_usage)
             status[f"{server['name']}_ram_state"] = check_resource_state(ram_usage, 'ram', server['name'])
             
             for disk in server['disks']:
                 disk_key = f"disk_usage_{disk.replace('/', '_')}"
-                disk_usage = float(server_info.get(disk_key, '0%').split('%')[0])
-                status[f"{server['name']}_{disk_key}_state"] = check_resource_state(disk_usage, 'disk', server['name'])
+                disk_usage = server_info.get(disk_key, '0%')
+                disk_usage_value = float(disk_usage.split('%')[0])
+                save_state(f"{server['name']}_{disk_key}", disk_usage_value)
+                status[f"{server['name']}_{disk_key}_state"] = check_resource_state(disk_usage_value, 'disk', server['name'])
+                logging.info(f"Guardando uso de disco para {server['name']}, {disk}: {disk_usage_value}%")
         else:
             logging.warning(f"No se pudo conectar al servidor {server['name']}")
     
@@ -271,6 +278,11 @@ def check_status():
             logging.info(f"Cambio de estado de API detectado: {message}")
         else:
             logging.debug(f"No hay cambio de estado para la API {api['name']}")
+    
+    # Guardar el estado general
+    overall_status = get_overall_status()
+    save_state('overall_status', overall_status)
+    status['overall_status'] = overall_status
     
     return status
 
@@ -296,13 +308,20 @@ def init_db():
                  (id INTEGER PRIMARY KEY AUTOINCREMENT,
                   name TEXT UNIQUE,
                   state TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS historical_states
+                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  timestamp TEXT,
+                  name TEXT,
+                  state TEXT)''')
     conn.commit()
     conn.close()
 
 def save_state(name, state):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
+    timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
     c.execute("INSERT OR REPLACE INTO states (name, state) VALUES (?, ?)", (name, json.dumps(state)))
+    c.execute("INSERT INTO historical_states (timestamp, name, state) VALUES (?, ?, ?)", (timestamp, name, json.dumps(state)))
     conn.commit()
     conn.close()
 
@@ -330,6 +349,17 @@ def get_overall_status():
     # Implementa la lógica para determinar el estado general
     return 'Estable'  # o 'Crítico', 'Advertencia', etc.
 
+def get_historical_states(name, minutes=60):
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    end_time = datetime.now()
+    start_time = end_time - timedelta(minutes=minutes)
+    query = "SELECT timestamp, state FROM historical_states WHERE name = ? AND timestamp >= ? AND timestamp <= ? ORDER BY timestamp"
+    c.execute(query, (name, start_time.strftime('%Y-%m-%d %H:%M:%S'), end_time.strftime('%Y-%m-%d %H:%M:%S')))
+    results = c.fetchall()
+    conn.close()
+    return [{"timestamp": row[0], "state": json.loads(row[1])} for row in results]
+
 # Inicializar la base de datos al importar el módulo
 init_db()
 
@@ -342,7 +372,7 @@ def dashboard():
 
 @app.route('/servers')
 def servers():
-    return render_template('servers.html', config=GENERAL_CONFIG)
+    return render_template('servers.html', config=GENERAL_CONFIG, servers=SERVERS)
 
 @app.route('/apis')
 def apis():
@@ -386,6 +416,55 @@ def api_dashboard_data():
     }
     return jsonify(data)
 
+@app.route('/api/historical-data')
+def api_historical_data():
+    name = request.args.get('name')
+    minutes = request.args.get('minutes', default=60, type=int)
+    if not name:
+        return jsonify({"error": "Se requiere el parámetro 'name'"}), 400
+    historical_data = get_historical_states(name, minutes)
+    return jsonify(historical_data)
+
+@app.route('/api/multi-historical-data')
+def api_multi_historical_data():
+    name = request.args.get('name')
+    if not name:
+        return jsonify({"error": "Se requiere el parámetro 'name'"}), 400
+    data = {
+        '5min': get_historical_states(name, 5),
+        '15min': get_historical_states(name, 15),
+        '30min': get_historical_states(name, 30),
+        '60min': get_historical_states(name, 60)
+    }
+    return jsonify(data)
+
+@app.route('/api/server-historical-data')
+def api_server_historical_data():
+    server_name = request.args.get('server')
+    resource = request.args.get('resource')
+    if not server_name or not resource:
+        return jsonify({"error": "Se requieren los parámetros 'server' y 'resource'"}), 400
+    data = {
+        '5min': get_historical_states(f"{server_name}_{resource}", 5),
+        '15min': get_historical_states(f"{server_name}_{resource}", 15),
+        '30min': get_historical_states(f"{server_name}_{resource}", 30),
+        '60min': get_historical_states(f"{server_name}_{resource}", 60)
+    }
+    logging.info(f"Datos históricos para {server_name}, {resource}: {data}")
+    return jsonify(data)
+
+import threading
+
+def background_task():
+    while True:
+        check_status()
+        time.sleep(60)  # Espera 60 segundos antes de la próxima actualización
+
+# Inicia el trabajo en segundo plano
+background_thread = threading.Thread(target=background_task)
+background_thread.daemon = True
+background_thread.start()
+
 if __name__ == '__main__':
-    port = GENERAL_CONFIG['dashboard'].get('port', 9000)  # Usa 9000 como puerto predeterminado si no está definido
+    port = GENERAL_CONFIG['dashboard'].get('port', 9000)
     app.run(debug=True, host='0.0.0.0', port=port)

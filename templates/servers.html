@@ -7,6 +7,16 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        .chart-container {
+            height: 300px;
+            margin-bottom: 30px;
+        }
+        .time-selector {
+            margin-bottom: 10px;
+        }
+    </style>
 </head>
 <body>
     <div class="dashboard">
@@ -24,99 +34,189 @@
         <div id="loading" class="loading">Cargando...</div>
 
         <main id="servers-container">
-            <!-- El contenido se actualizará dinámicamente -->
+            {% for server in servers %}
+            <section class="server-section" id="server-{{ server['name'] }}">
+                <h2>{{ server['name'] }}</h2>
+                <div class="resource-charts">
+                    <div class="chart-container">
+                        <h3>Carga del CPU</h3>
+                        <div class="time-selector">
+                            <select onchange="updateServerCharts('{{ server['name'] }}', 'load', this.value)">
+                                <option value="5min">Últimos 5 minutos</option>
+                                <option value="15min">Últimos 15 minutos</option>
+                                <option value="30min">Últimos 30 minutos</option>
+                                <option value="60min" selected>Última hora</option>
+                            </select>
+                        </div>
+                        <div id="loadChart-{{ server['name'] }}"></div>
+                    </div>
+                    <div class="chart-container">
+                        <h3>Uso de RAM</h3>
+                        <div class="time-selector">
+                            <select onchange="updateServerCharts('{{ server['name'] }}', 'ram', this.value)">
+                                <option value="5min">Últimos 5 minutos</option>
+                                <option value="15min">Últimos 15 minutos</option>
+                                <option value="30min">Últimos 30 minutos</option>
+                                <option value="60min" selected>Última hora</option>
+                            </select>
+                        </div>
+                        <div id="ramChart-{{ server['name'] }}"></div>
+                    </div>
+                    {% for disk in server['disks'] %}
+                    <div class="chart-container">
+                        <h3>Uso de Disco {{ disk }}</h3>
+                        <div class="time-selector">
+                            <select onchange="updateServerCharts('{{ server['name'] }}', 'disk_usage_{{ disk.replace('/', '_') }}', this.value)">
+                                <option value="5min">Últimos 5 minutos</option>
+                                <option value="15min">Últimos 15 minutos</option>
+                                <option value="30min">Últimos 30 minutos</option>
+                                <option value="60min" selected>Última hora</option>
+                            </select>
+                        </div>
+                        <div id="diskChart-{{ server['name'] }}-{{ disk.replace('/', '_') }}"></div>
+                    </div>
+                    {% endfor %}
+                </div>
+            </section>
+            {% endfor %}
         </main>
 
         <footer>
             <p>Última actualización: <span id="last-update"></span></p>
-            <p>Próxima actualización en: <span id="refresh-countdown"></span> segundos</p>
         </footer>
     </div>
 
     <script>
-        let refreshInterval = {{ config['refresh_interval'] }};
-        let countdownTimer;
+        let charts = {};
 
-        function updateServers(showLoading = true) {
-            if (showLoading) {
-                $('#loading').show();
-                $('#servers-container').hide();
-            }
-            
-            $.getJSON('/api/dashboard-data', function(data) {
-                let html = '<section class="servers">';
-                html += '<h2>Servidores</h2>';
-                html += '<div class="grid">';
-                for (let server of data.servers) {
-                    html += `<div class="card ${server.status ? 'up' : 'down'}">`;
-                    html += `<h3>${server.name}</h3>`;
-                    html += `<p class="status">${server.status ? 'Activo' : 'Inaccesible'}</p>`;
-                    
-                    if (server.status && server.info) {
-                        html += '<div class="server-info">';
-                        html += `<p><strong>Uptime:</strong> ${server.info.uptime}</p>`;
-                        html += `<p><strong>Carga:</strong> <span class="${server.load_state}">${server.info.load}</span></p>`;
-                        html += `<p><strong>RAM:</strong> <span class="${server.ram_state}">${server.info.ram_usage}</span></p>`;
-                        for (let disk in server.disk_states) {
-                            html += `<p><strong>Disco ${disk}:</strong> <span class="${server.disk_states[disk]}">${server.info['disk_usage_' + disk.replace('/', '_')]}</span></p>`;
-                        }
-                        html += '</div>';
+        function updateServerCharts(serverName, resource, timeRange = '60min') {
+            const isDisc = resource.startsWith('disk_usage_');
+            const resourceName = isDisc ? `Disco ${resource.replace('disk_usage_', '')}` : 
+                                 (resource === 'load' ? 'CPU' : resource.toUpperCase());
+
+            $.getJSON(`/api/server-historical-data?server=${serverName}&resource=${resource}`, function(data) {
+                const chartId = isDisc ? `diskChart-${serverName}-${resource.replace('disk_usage_', '')}` : `${resource}Chart-${serverName}`;
+                const chartElement = document.getElementById(chartId);
+                if (!chartElement) {
+                    console.error(`No se encontró el elemento para ${chartId}`);
+                    return;
+                }
+
+                const chartData = data[timeRange];
+                const timestamps = chartData.map(item => new Date(item.timestamp));
+                const values = chartData.map(item => parseFloat(item.state));
+
+                // Calcular el rango para el eje Y
+                const minValue = Math.min(...values);
+                const maxValue = Math.max(...values);
+                const yAxisRange = [
+                    Math.max(0, minValue - (maxValue - minValue) * 0.1),  // 10% por debajo del mínimo, pero no menos de 0
+                    maxValue + (maxValue - minValue) * 0.1  // 10% por encima del máximo
+                ];
+
+                const trace = {
+                    x: timestamps,
+                    y: values,
+                    type: 'scatter',
+                    mode: 'lines+markers',
+                    name: resourceName,
+                    line: {
+                        color: '#0077be',
+                        width: 2
+                    },
+                    marker: {
+                        color: '#f7931e',
+                        size: 6
                     }
-                    html += '</div>';
-                }
-                html += '</div>';
-                html += '</section>';
-                
-                $('#servers-container').html(html);
-                
-                // Actualizar la hora de la última actualización
-                const now = new Date();
-                const formattedDate = now.toLocaleString('es-ES', { 
-                    year: 'numeric', 
-                    month: '2-digit', 
-                    day: '2-digit', 
-                    hour: '2-digit', 
-                    minute: '2-digit', 
-                    second: '2-digit' 
-                });
-                $('#last-update').text(formattedDate);
-                
-                if (showLoading) {
-                    $('#loading').hide();
-                    $('#servers-container').show();
-                }
+                };
 
-                // Reiniciar el contador de actualización
-                startCountdown();
+                const layout = {
+                    title: {
+                        text: `${resourceName} - ${serverName}`,
+                        font: {
+                            size: 16,
+                            color: '#333'
+                        }
+                    },
+                    showlegend: false,
+                    xaxis: {
+                        title: 'Tiempo',
+                        showgrid: false,
+                        zeroline: false,
+                        tickfont: {
+                            size: 10,
+                            color: '#666'
+                        }
+                    },
+                    yaxis: {
+                        title: 'Porcentaje de uso',
+                        range: yAxisRange,  // Usar el rango calculado
+                        showgrid: true,
+                        gridcolor: '#e0e0e0',
+                        zeroline: false,
+                        tickfont: {
+                            size: 10,
+                            color: '#666'
+                        }
+                    },
+                    paper_bgcolor: 'rgba(0,0,0,0)',
+                    plot_bgcolor: 'rgba(0,0,0,0)',
+                    margin: {l: 50, r: 20, t: 40, b: 40},
+                    height: 250
+                };
+
+                const config = {
+                    responsive: true,
+                    displayModeBar: false
+                };
+
+                Plotly.newPlot(chartId, [trace], layout, config);
+            }).fail(function(jqXHR, textStatus, errorThrown) {
+                console.error(`Error al obtener datos para ${serverName}, ${resource}:`, textStatus, errorThrown);
             });
         }
 
-        function startCountdown() {
-            let countdown = refreshInterval;
-            updateCountdown(countdown);
+        function updateAllCharts() {
+            {% for server in servers %}
+            updateServerCharts('{{ server['name'] }}', 'load');
+            updateServerCharts('{{ server['name'] }}', 'ram');
+            {% for disk in server['disks'] %}
+            updateServerCharts('{{ server['name'] }}', 'disk_usage_{{ disk.replace('/', '_') }}');
+            {% endfor %}
+            {% endfor %}
 
-            clearInterval(countdownTimer);
-            countdownTimer = setInterval(function() {
-                countdown--;
-                updateCountdown(countdown);
-                if (countdown <= 0) {
-                    clearInterval(countdownTimer);
-                }
-            }, 1000);
+            const now = new Date();
+            const formattedDate = now.toLocaleString('es-ES', { 
+                year: 'numeric', 
+                month: '2-digit', 
+                day: '2-digit', 
+                hour: '2-digit', 
+                minute: '2-digit', 
+                second: '2-digit' 
+            });
+            $('#last-update').text(formattedDate);
         }
 
-        function updateCountdown(seconds) {
-            $('#refresh-countdown').text(seconds);
+        // Función para manejar el cambio en el selector de tiempo
+        function handleTimeRangeChange(serverName, resource, timeRange) {
+            updateServerCharts(serverName, resource, timeRange);
         }
 
-        // Actualizar según el intervalo configurado
-        setInterval(() => updateServers(true), refreshInterval * 1000);
-        
-        // Actualizar inmediatamente al cargar la página
         $(document).ready(() => {
-            $('#servers-container').hide();
-            updateServers(true);
+            $('#loading').hide();
+            updateAllCharts();
+
+            // Agregar event listeners a todos los selectores de tiempo
+            $('.time-selector select').on('change', function() {
+                const serverName = $(this).closest('.server-section').attr('id').replace('server-', '');
+                const resourceType = $(this).closest('.chart-container').find('h3').text().toLowerCase().includes('cpu') ? 'load' :
+                                     $(this).closest('.chart-container').find('h3').text().toLowerCase().includes('ram') ? 'ram' :
+                                     'disk_usage_' + $(this).closest('.chart-container').find('h3').text().split('Disco ')[1].replace('/', '_');
+                handleTimeRangeChange(serverName, resourceType, this.value);
+            });
         });
+
+        setInterval(updateAllCharts, 5 * 60 * 1000);
     </script>
 </body>
 </html>

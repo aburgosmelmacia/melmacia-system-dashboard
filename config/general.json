@@ -1,6 +1,6 @@
 {
   "notifications": {
-    "enabled": true
+    "enabled": false
   },
   "refresh_interval": 60,
   "log_retention_days": 30,
