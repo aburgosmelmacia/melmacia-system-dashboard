@@ -1,38 +1,13 @@
-import json
-import os
-import paramiko
-import requests
-from pymsteams import connectorcard
-from dotenv import load_dotenv
-from datetime import datetime, timedelta
-import sqlite3
-import pytz
-import threading
-from paramiko import SSHConfig, ProxyCommand
 from flask import Flask, render_template, jsonify, request
 from flask_cors import CORS
-import logging
-import time
-import random
+import sqlite3
+import json
+import os
+from datetime import datetime, timedelta
+import pytz
 
-load_dotenv()
-
-# Lock para operaciones thread-safe
-status_lock = threading.Lock()
-
-# Definir la ruta de la base de datos en un lugar persistente
-DB_PATH = os.path.join(os.path.expanduser('~'), 'events.db')
-
-# Configurar logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-
+# Cargar configuraciones
 def cargar_configuraciones():
-    """
-    Carga las configuraciones desde los archivos JSON.
-    
-    Returns:
-        tuple: SERVERS, APIS, GENERAL_CONFIG
-    """
     with open('config/servers.json') as f:
         SERVERS = json.load(f)
     with open('config/apis.json') as f:
@@ -41,249 +16,22 @@ def cargar_configuraciones():
         GENERAL_CONFIG = json.load(f)
     return SERVERS, APIS, GENERAL_CONFIG
 
-# Inicializar las configuraciones
 SERVERS, APIS, GENERAL_CONFIG = cargar_configuraciones()
 
-def check_ssh(server):
-    """
-    Establece una conexión SSH con el servidor especificado.
-    
-    Args:
-        server (dict): Diccionario con la configuración del servidor.
-    
-    Returns:
-        paramiko.SSHClient or None: Cliente SSH conectado o None si falla la conexión.
-    """
-    try:
-        # Cargar la configuración SSH del usuario
-        ssh_config = SSHConfig()
-        user_config_file = os.path.expanduser("~/.ssh/config")
-        if os.path.exists(user_config_file):
-            with open(user_config_file) as f:
-                ssh_config.parse(f)
+# Definir la ruta de la base de datos
+DB_PATH = os.path.join(os.path.expanduser('~'), 'events.db')
 
-        # Obtener la configuración para el servidor
-        host_config = ssh_config.lookup(server['ssh']['hostname'])
+app = Flask(__name__)
+CORS(app)
 
-        # Crear el cliente SSH
-        client = paramiko.SSHClient()
-        client.load_system_host_keys()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-
-        # Configurar la conexión
-        connect_kwargs = {}
-        if 'hostname' in host_config:
-            connect_kwargs['hostname'] = host_config['hostname']
-        elif 'host' in host_config:
-            connect_kwargs['hostname'] = host_config['host']
-        if 'user' in host_config:
-            connect_kwargs['username'] = host_config['user']
-        if 'port' in host_config:
-            connect_kwargs['port'] = int(host_config['port'])
-        if 'identityfile' in host_config:
-            connect_kwargs['key_filename'] = host_config['identityfile'][0]
-        if 'proxycommand' in host_config:
-            connect_kwargs['sock'] = ProxyCommand(host_config['proxycommand'])
-
-        # Conectar
-        client.connect(**connect_kwargs)
-        return client
-    except Exception as e:
-        logging.error(f"Error de conexión SSH para {server['name']}: {str(e)}")
-        return None
-
-def check_api(api):
-    """
-    Verifica el estado de una API.
-    
-    Args:
-        api (dict): Diccionario con la configuración de la API.
-    
-    Returns:
-        bool: True si la API está activa, False en caso contrario.
-    """
-    try:
-        if api['requires_ssh']:
-            server = next(s for s in SERVERS if s['name'] == api['server'])
-            ssh_client = check_ssh(server)
-            if ssh_client:
-                stdin, stdout, stderr = ssh_client.exec_command(f"curl -s -o /dev/null -w '%{{http_code}}' {api['url']}")
-                status_code = stdout.read().decode().strip()
-                ssh_client.close()
-                return status_code == "200"
-        else:
-            response = requests.get(api['url'], timeout=5)  # Añadir un timeout
-            return response.status_code == 200
-    except Exception as e:
-        logging.error(f"Error al verificar API {api['name']}: {str(e)}")
-        return False
-
-def add_event(message):
-    """
-    Añade un evento a la base de datos.
-    
-    Args:
-        message (str): Mensaje del evento.
-    """
-    madrid_tz = pytz.timezone('Europe/Madrid')
-    timestamp = datetime.now(madrid_tz).strftime("%Y-%m-%d %H:%M:%S")
+def get_status_from_db():
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    c.execute("INSERT INTO events (timestamp, message) VALUES (?, ?)", (timestamp, message))
-    conn.commit()
+    c.execute("SELECT name, state FROM states")
+    results = c.fetchall()
     conn.close()
-
-def send_teams_alert(message, general_config):
-    """
-    Envía una alerta a Microsoft Teams si las notificaciones están habilitadas.
-    
-    Args:
-        message (str): Mensaje de la alerta.
-    """
-    if general_config['notifications']['enabled']:
-        teams_webhook = os.getenv('TEAMS_WEBHOOK')
-        myTeamsMessage = connectorcard(teams_webhook)
-        myTeamsMessage.text(message)
-        myTeamsMessage.send()
-        logging.info(f"Alerta enviada: {message}")
-    add_event(f"Alerta: {message}")
-
-def get_server_info(ssh_client, disks):
-    """
-    Obtiene información del servidor mediante SSH.
-    
-    Args:
-        ssh_client (paramiko.SSHClient): Cliente SSH conectado.
-        disks (list): Lista de discos a monitorear.
-    
-    Returns:
-        dict: Información del servidor.
-    """
-    server_info = {}
-    
-    # Obtener el tiempo de arranque
-    stdin, stdout, stderr = ssh_client.exec_command("cat /proc/uptime")
-    uptime = float(stdout.read().decode().split()[0])
-    
-    # Tiempo en marcha
-    server_info["uptime"] = f"{int(uptime // 86400)} días, {int((uptime % 86400) // 3600)} horas, {int((uptime % 3600) // 60)} minutos"
-    
-    # Carga actual
-    stdin, stdout, stderr = ssh_client.exec_command("cat /proc/loadavg")
-    load = stdout.read().decode().split()[:3]
-    server_info["load"] = f"{load[0]}, {load[1]}, {load[2]}"
-    
-    # Memoria RAM utilizada
-    stdin, stdout, stderr = ssh_client.exec_command("free -m | awk '/Mem:/ {print $3,$2}'")
-    mem = stdout.read().decode().split()
-    server_info["ram_usage"] = f"{int(mem[0])/int(mem[1])*100:.2f}% ({int(mem[0])} MB / {int(mem[1])} MB)"
-    
-    # Espacio de disco
-    stdin, stdout, stderr = ssh_client.exec_command(f"df -h {' '.join(disks)}")
-    disk_info = stdout.read().decode().splitlines()[1:]
-    for line in disk_info:
-        parts = line.split()
-        server_info[f"disk_usage_{parts[5].replace('/', '_')}"] = f"{parts[4]} ({parts[2]} / {parts[1]})"
-    
-    return server_info
-
-def check_resource_state(current_value, resource_name, server_name):
-    thresholds = GENERAL_CONFIG['thresholds'][resource_name.split('_')[0]]
-    
-    def extract_percentage(value):
-        if isinstance(value, str):
-            import re
-            match = re.search(r'(\d+(\.\d+)?)%', value)
-            if match:
-                return float(match.group(1))
-        return value
-
-    try:
-        current_value = extract_percentage(current_value)
-        if isinstance(current_value, str):
-            current_value = float(current_value)
-    except ValueError:
-        logging.error(f"Error al convertir {current_value} a float para {resource_name}")
-        return None
-
-    if current_value >= thresholds['critical']:
-        new_state = 'critical'
-    elif current_value >= thresholds['warning']:
-        new_state = 'warning'
-    else:
-        new_state = 'good'
-    
-    state_key = f"{server_name}_{resource_name}_state"
-    last_state = load_saved_state(state_key)
-    
-    if new_state != last_state:
-        if thresholds.get('alerts_enabled', True):
-            message = f"El {resource_name} de {server_name} ha cambiado a estado {new_state}: {current_value:.2f}%"
-            send_teams_alert(message, GENERAL_CONFIG)
-            add_event(message)
-        save_state(state_key, new_state)
-        logging.info(f"Cambio de estado detectado: {resource_name} de {server_name} a {new_state}")
-    else:
-        logging.debug(f"No hay cambio de estado para {resource_name} de {server_name}")
-    
-    return new_state
-
-def check_status():
-    # Recargar configuraciones antes de cada comprobación
-    global SERVERS, APIS, GENERAL_CONFIG
-    SERVERS, APIS, GENERAL_CONFIG = cargar_configuraciones()
-    
-    status = {}
-    
-    for server in SERVERS:
-        ssh_client = check_ssh(server)
-        server_status = ssh_client is not None
-        status[f"ssh_{server['name']}"] = server_status
-        
-        if server_status:
-            server_info = get_server_info(ssh_client, server['disks'])
-            status[f"{server['name']}_info"] = server_info
-            ssh_client.close()
-            
-            # Guardar estados de los recursos
-            load_value = float(server_info.get('load', '0').split(',')[0])
-            save_state(f"{server['name']}_load", load_value)
-            status[f"{server['name']}_load_state"] = check_resource_state(load_value, 'load', server['name'])
-            
-            ram_usage = float(server_info.get('ram_usage', '0%').split('%')[0])
-            save_state(f"{server['name']}_ram", ram_usage)
-            status[f"{server['name']}_ram_state"] = check_resource_state(ram_usage, 'ram', server['name'])
-            
-            for disk in server['disks']:
-                disk_key = f"disk_usage_{disk.replace('/', '_')}"
-                disk_usage = server_info.get(disk_key, '0%')
-                disk_usage_value = float(disk_usage.split('%')[0])
-                save_state(f"{server['name']}_{disk_key}", disk_usage_value)
-                status[f"{server['name']}_{disk_key}_state"] = check_resource_state(disk_usage_value, 'disk', server['name'])
-                logging.info(f"Guardando uso de disco para {server['name']}, {disk}: {disk_usage_value}%")
-        else:
-            logging.warning(f"No se pudo conectar al servidor {server['name']}")
-    
-    for api in APIS:
-        api_status = check_api(api)
-        status[f"api_{api['name']}"] = api_status
-        
-        state_key = f"api_{api['name']}_state"
-        last_state = load_saved_state(state_key)
-        if api_status != last_state:
-            message = f"El estado de la API {api['name']} ha cambiado a {'activo' if api_status else 'inactivo'}"
-            send_teams_alert(message, GENERAL_CONFIG)
-            add_event(message)
-            save_state(state_key, api_status)
-            logging.info(f"Cambio de estado de API detectado: {message}")
-        else:
-            logging.debug(f"No hay cambio de estado para la API {api['name']}")
-    
-    # Guardar el estado general
-    overall_status = get_overall_status()
-    save_state('overall_status', overall_status)
-    status['overall_status'] = overall_status
-    
+    status = {name: json.loads(state) for name, state in results}
+    print("Estado leído de la base de datos:", json.dumps(status, indent=2))
     return status
 
 def get_events(limit=None):
@@ -296,75 +44,6 @@ def get_events(limit=None):
     events = [{"timestamp": row[0], "message": row[1]} for row in c.fetchall()]
     conn.close()
     return events
-
-def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS events
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  timestamp TEXT,
-                  message TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS states
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  name TEXT UNIQUE,
-                  state TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS historical_states
-                 (id INTEGER PRIMARY KEY AUTOINCREMENT,
-                  timestamp TEXT,
-                  name TEXT,
-                  state TEXT)''')
-    conn.commit()
-    conn.close()
-
-def save_state(name, state):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    timestamp = datetime.now(pytz.UTC).strftime('%Y-%m-%d %H:%M:%S')
-    c.execute("INSERT OR REPLACE INTO states (name, state) VALUES (?, ?)", (name, json.dumps(state)))
-    c.execute("INSERT INTO historical_states (timestamp, name, state) VALUES (?, ?, ?)", (timestamp, name, json.dumps(state)))
-    conn.commit()
-    conn.close()
-
-def load_saved_state(name):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("SELECT state FROM states WHERE name = ?", (name,))
-    result = c.fetchone()
-    conn.close()
-    if result:
-        try:
-            return json.loads(result[0])
-        except json.JSONDecodeError:
-            return result[0]
-    return None
-
-def clean_old_events():
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    c.execute("DELETE FROM events WHERE timestamp < date('now', ?)", (f"-{GENERAL_CONFIG['log_retention_days']} days",))
-    conn.commit()
-    conn.close()
-
-def get_overall_status():
-    # Implementa la lógica para determinar el estado general
-    return 'Estable'  # o 'Crítico', 'Advertencia', etc.
-
-def get_historical_states(name, minutes=60):
-    conn = sqlite3.connect(DB_PATH)
-    c = conn.cursor()
-    end_time = datetime.now()
-    start_time = end_time - timedelta(minutes=minutes)
-    query = "SELECT timestamp, state FROM historical_states WHERE name = ? AND timestamp >= ? AND timestamp <= ? ORDER BY timestamp"
-    c.execute(query, (name, start_time.strftime('%Y-%m-%d %H:%M:%S'), end_time.strftime('%Y-%m-%d %H:%M:%S')))
-    results = c.fetchall()
-    conn.close()
-    return [{"timestamp": row[0], "state": json.loads(row[1])} for row in results]
-
-# Inicializar la base de datos al importar el módulo
-init_db()
-
-app = Flask(__name__)
-CORS(app)
 
 @app.route('/')
 def dashboard():
@@ -382,9 +61,13 @@ def apis():
 def api_dashboard_data():
     page = request.args.get('page', 1, type=int)
     events_per_page = GENERAL_CONFIG['dashboard']['max_events_displayed']
-    status = check_status()
+    status = get_status_from_db()
     event_log = get_events()
     total_events = len(event_log)
+    
+    # Depuración: imprimir el estado completo
+    print("Estado completo:", json.dumps(status, indent=2))
+    
     data = {
         'servers': [
             {
@@ -412,29 +95,50 @@ def api_dashboard_data():
         'current_page': page,
         'total_pages': (total_events + events_per_page - 1) // events_per_page,
         'events_per_page': events_per_page,
-        'overallStatus': get_overall_status()
+        'overallStatus': status.get('overall_status', 'Desconocido')
     }
+    
+    # Depuración: imprimir los datos que se envían al frontend
+    print("Datos enviados al frontend:", json.dumps(data, indent=2))
+    
     return jsonify(data)
 
 @app.route('/api/historical-data')
 def api_historical_data():
     name = request.args.get('name')
     minutes = request.args.get('minutes', default=60, type=int)
+    data = get_historical_data(name, minutes)
+    if isinstance(data, tuple):  # Error case
+        return jsonify(data[0]), data[1]
+    return jsonify(data)
+
+def get_historical_data(name, minutes):
     if not name:
-        return jsonify({"error": "Se requiere el parámetro 'name'"}), 400
-    historical_data = get_historical_states(name, minutes)
-    return jsonify(historical_data)
+        return {"error": "Se requiere el parámetro 'name'"}, 400
+    
+    conn = sqlite3.connect(DB_PATH)
+    c = conn.cursor()
+    end_time = datetime.now()
+    start_time = end_time - timedelta(minutes=minutes)
+    query = "SELECT timestamp, state FROM historical_states WHERE name = ? AND timestamp >= ? AND timestamp <= ? ORDER BY timestamp"
+    c.execute(query, (name, start_time.strftime('%Y-%m-%d %H:%M:%S'), end_time.strftime('%Y-%m-%d %H:%M:%S')))
+    results = c.fetchall()
+    conn.close()
+    
+    historical_data = [{"timestamp": row[0], "state": json.loads(row[1])} for row in results]
+    return historical_data
 
 @app.route('/api/multi-historical-data')
 def api_multi_historical_data():
     name = request.args.get('name')
     if not name:
         return jsonify({"error": "Se requiere el parámetro 'name'"}), 400
+    
     data = {
-        '5min': get_historical_states(name, 5),
-        '15min': get_historical_states(name, 15),
-        '30min': get_historical_states(name, 30),
-        '60min': get_historical_states(name, 60)
+        '5min': get_historical_data(name, 5),
+        '15min': get_historical_data(name, 15),
+        '30min': get_historical_data(name, 30),
+        '60min': get_historical_data(name, 60)
     }
     return jsonify(data)
 
@@ -446,8 +150,7 @@ def api_server_historical_data():
         return jsonify({"error": "Se requieren los parámetros 'server' y 'resource'"}), 400
     
     def get_data_for_range(minutes):
-        data = get_historical_states(f"{server_name}_{resource}", minutes)
-        return [{"timestamp": d["timestamp"], "state": d["state"]} for d in data]
+        return get_historical_data(f"{server_name}_{resource}", minutes)
     
     data = {
         '5min': get_data_for_range(5),
@@ -455,20 +158,7 @@ def api_server_historical_data():
         '30min': get_data_for_range(30),
         '60min': get_data_for_range(60)
     }
-    logging.info(f"Datos históricos para {server_name}, {resource}: {data}")
     return jsonify(data)
-
-import threading
-
-def background_task():
-    while True:
-        check_status()
-        time.sleep(60)  # Espera 60 segundos antes de la próxima actualización
-
-# Inicia el trabajo en segundo plano
-background_thread = threading.Thread(target=background_task)
-background_thread.daemon = True
-background_thread.start()
 
 if __name__ == '__main__':
     port = GENERAL_CONFIG['dashboard'].get('port', 9000)
