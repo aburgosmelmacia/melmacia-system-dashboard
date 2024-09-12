@@ -319,7 +319,7 @@ def init_db():
 def save_state(name, state):
     conn = sqlite3.connect(DB_PATH)
     c = conn.cursor()
-    timestamp = time.strftime('%Y-%m-%d %H:%M:%S')
+    timestamp = datetime.now(pytz.UTC).strftime('%Y-%m-%d %H:%M:%S')
     c.execute("INSERT OR REPLACE INTO states (name, state) VALUES (?, ?)", (name, json.dumps(state)))
     c.execute("INSERT INTO historical_states (timestamp, name, state) VALUES (?, ?, ?)", (timestamp, name, json.dumps(state)))
     conn.commit()
@@ -444,11 +444,16 @@ def api_server_historical_data():
     resource = request.args.get('resource')
     if not server_name or not resource:
         return jsonify({"error": "Se requieren los parámetros 'server' y 'resource'"}), 400
+    
+    def get_data_for_range(minutes):
+        data = get_historical_states(f"{server_name}_{resource}", minutes)
+        return [{"timestamp": d["timestamp"], "state": d["state"]} for d in data]
+    
     data = {
-        '5min': get_historical_states(f"{server_name}_{resource}", 5),
-        '15min': get_historical_states(f"{server_name}_{resource}", 15),
-        '30min': get_historical_states(f"{server_name}_{resource}", 30),
-        '60min': get_historical_states(f"{server_name}_{resource}", 60)
+        '5min': get_data_for_range(5),
+        '15min': get_data_for_range(15),
+        '30min': get_data_for_range(30),
+        '60min': get_data_for_range(60)
     }
     logging.info(f"Datos históricos para {server_name}, {resource}: {data}")
     return jsonify(data)

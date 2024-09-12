@@ -103,7 +103,11 @@
                 }
 
                 const chartData = data[timeRange];
-                const timestamps = chartData.map(item => new Date(item.timestamp));
+                const timestamps = chartData.map(item => {
+                    // Convertir la marca de tiempo a la zona horaria de Madrid
+                    const date = new Date(item.timestamp + 'Z');  // Añadir 'Z' para indicar que es UTC
+                    return new Date(date.toLocaleString('en-US', { timeZone: 'Europe/Madrid' }));
+                });
                 const values = chartData.map(item => parseFloat(item.state));
 
                 // Calcular el rango para el eje Y
